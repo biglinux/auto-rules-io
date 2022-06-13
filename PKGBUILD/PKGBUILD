@@ -9,6 +9,7 @@ url="https://github.com/biglinux/auto-rules-io"
 pkgdesc="Automatic change io scheduler"
 source=("git+https://github.com/biglinux/auto-rules-io.git")
 md5sums=(SKIP)
+makedepends=("git")
 
 package() {
     cp -r "${srcdir}/auto-rules-io/auto-rules-io/etc/" "${pkgdir}/"
