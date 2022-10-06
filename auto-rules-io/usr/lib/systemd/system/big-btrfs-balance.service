@@ -1,0 +1,14 @@
+[Unit]
+Description=auto balance btrfs
+After=multi-user.target
+
+
+[Service]
+Type=forking
+TimeoutStartSec=infinity
+ExecStartPre=/bin/sleep 300
+ExecStart=/usr/bin/big-btrfs-balance
+
+
+[Install]
+WantedBy=multi-user.target

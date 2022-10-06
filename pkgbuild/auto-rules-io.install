@@ -1,0 +1,7 @@
+post_install() {
+    systemctl enable big-btrfs-balance.service
+}
+
+pre_remove() {
+    systemctl disable big-btrfs-balance.service
+} 

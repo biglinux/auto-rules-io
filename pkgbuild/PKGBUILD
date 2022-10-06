@@ -10,6 +10,7 @@ pkgdesc="Automatic change io scheduler"
 source=("git+https://github.com/biglinux/auto-rules-io.git")
 makedepends=("git")
 md5sums=(SKIP)
+install=auto-rules-io.install
 
 package() {
     # Verify default folder

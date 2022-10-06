@@ -1,0 +1,18 @@
+#!/bin/bash 
+
+# Verify if / and /root use btrfs and in same partition
+# run balance to improve speed and turn free space really free
+
+FolderRoot=$(btrfs device stats / | tail -n1 | cut -f1 -d] | cut -f2 -d[)
+
+FolderHome=$(btrfs device stats /home | tail -n1 | cut -f1 -d] | cut -f2 -d[)
+
+if [ "$FolderRoot" != "" ]; then
+    nice -n+20 ionice -c 3 btrfs balance start -dusage=50 -musage=50 /
+fi
+
+if [ "$FolderHome" != "" ] && [ "$FolderHome" != "$FolderRoot" ]; then
+    nice -n+20 ionice -c 3 btrfs balance start -dusage=50 -musage=50 /home
+fi
+
+
