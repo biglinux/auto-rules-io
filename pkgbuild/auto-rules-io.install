@@ -4,7 +4,7 @@ post_install() {
 
 post_upgrade() {
     systemctl enable big-btrfs-balance.service
-    sed -i 's|,space_cache=v2,autodefrag,compress-force=zstd:2,commit=15(\|,discard=async,ssd)|,compress-force|g' /etc/fstab 
+    sed -Ei 's|,space_cache=v2,autodefrag,compress-force=zstd:2,commit=15(\|,discard=async,ssd)|,compress-force=zstd|g' /etc/fstab 
 }
 
 pre_remove() {
