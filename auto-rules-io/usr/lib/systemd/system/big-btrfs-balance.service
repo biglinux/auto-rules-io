@@ -6,7 +6,7 @@ After=multi-user.target
 [Service]
 Type=forking
 TimeoutStartSec=infinity
-ExecStartPre=/bin/sleep 300
+ExecStartPre=/usr/bin/big-btrfs-fix-to-timeshift
 ExecStart=/usr/bin/big-btrfs-balance
 
 

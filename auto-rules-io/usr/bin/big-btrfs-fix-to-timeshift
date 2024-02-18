@@ -1,0 +1,13 @@
+#!/bin/bash 
+
+# Verify if / is btrfs and have subcolume id, turn this a default subcolume
+# Without this timeshift have a problem
+
+btrfs_id=$(btrfs subvolume list / | awk '$9 == "@" { print $7 }')
+
+if [[ -n $btrfs_id ]]; then
+    btrfs subvolume set-default $btrfs_id /
+fi
+
+# Automatic run big btrfs-balance.service after this, wait 5 minutes
+sleep 300
