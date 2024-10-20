@@ -4,10 +4,9 @@ After=multi-user.target
 
 
 [Service]
-Type=forking
+Type=simple
 TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/big-btrfs-fix-to-timeshift
-ExecStart=/usr/bin/big-btrfs-balance
+ExecStart=/usr/bin/big-btrfs-fix-to-timeshift
 
 
 [Install]

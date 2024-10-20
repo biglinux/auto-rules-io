@@ -9,5 +9,7 @@ if [[ -n $btrfs_id ]]; then
     btrfs subvolume set-default $btrfs_id /
 fi
 
-# Automatic run big btrfs-balance.service after this, wait 5 minutes
+# Automatic run big btrfs-balance after this, wait 5 minutes
 sleep 300
+
+big-btrfs-balance
