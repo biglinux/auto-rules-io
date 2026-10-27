@@ -7,12 +7,36 @@ FolderRoot=$(btrfs device stats / | tail -n1 | cut -f1 -d] | cut -f2 -d[)
 
 FolderHome=$(btrfs device stats /home | tail -n1 | cut -f1 -d] | cut -f2 -d[)
 
+# A usage filter also picks the last, partly filled chunk that the previous
+# balance just packed, so a filesystem that changed little since then has the
+# same data rewritten on every boot and frees nothing. Freeing a chunk needs
+# at least a chunk of allocated-but-unused space: data chunks are 1 GiB on any
+# filesystem of 10 GiB or more, and the kernel reports the metadata chunk size,
+# which is at least 256 MiB. Its data chunk size there is only the upper limit.
+balance() {
+    local type slack meta_chunk filters=()
+    meta_chunk=$(cat "/sys/fs/btrfs/$(findmnt -no UUID "$1")/allocation/metadata/chunk_size" 2>/dev/null)
+    while read -r type slack; do
+        case $type in
+            Data) (( slack >= 1073741824 )) && filters+=(-dusage=50) ;;
+            Metadata) (( slack >= ${meta_chunk:-268435456} )) && filters+=(-musage=50) ;;
+            Data+Metadata) filters+=(-dusage=50 -musage=50) ;;
+        esac
+    done < <(btrfs filesystem df -b "$1" | awk -F'[ ,=]+' '$1 == "Data" || $1 == "Metadata" || $1 == "Data+Metadata" {
+        for (i = 2; i < NF; i++) { if ($i == "total") t[$1] += $(i+1); if ($i == "used") u[$1] += $(i+1) }
+    } END { for (k in t) print k, t[k] - u[k] }')
+
+    if (( ${#filters[@]} )); then
+        nice -n+20 ionice -c 3 btrfs balance start "${filters[@]}" "$1"
+    fi
+}
+
 if [ "$FolderRoot" != "" ]; then
-    nice -n+20 ionice -c 3 btrfs balance start -dusage=50 -musage=50 /
+    balance /
 fi
 
 if [ "$FolderHome" != "" ] && [ "$FolderHome" != "$FolderRoot" ]; then
-    nice -n+20 ionice -c 3 btrfs balance start -dusage=50 -musage=50 /home
+    balance /home
 fi
 
 
