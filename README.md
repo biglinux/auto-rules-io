@@ -58,3 +58,9 @@ PT - A `background.slice` do usuário roda com `CPUWeight=idle`: suas tarefas s�
 EN - `ldconfig.service` rebuilds `/etc/ld.so.cache` at boot only when it is missing or empty, instead of at the first boot after every update. pacman already runs ldconfig after each transaction, so the boot rebuild repeated it inside `sysinit.target`: 8.8–9.9 s cold on an HDD, 0.5 s on an NVMe. Libraries added without pacman (a `systemd-sysext` image, a transaction killed before its end) need `sudo ldconfig`.
 
 PT - O `ldconfig.service` refaz o `/etc/ld.so.cache` no boot só quando ele falta ou está vazio, em vez de no primeiro boot depois de cada atualização. O pacman já roda o ldconfig a cada transação, então o boot repetia o trabalho dentro do `sysinit.target`: 8,8–9,9 s a frio num HD, 0,5 s num NVMe. Bibliotecas adicionadas sem o pacman (uma imagem do `systemd-sysext`, uma transação interrompida antes do fim) precisam de `sudo ldconfig`.
+
+## snap at login / snap no login
+
+EN - snapd's autostart (`snap userd --autostart`) starts only where snapd is enabled (`/run/snapd.socket` exists). With snapd turned off it ran at every login: 3.3–4.2 s cold on an HDD.
+
+PT - O autostart do snapd (`snap userd --autostart`) só inicia onde o snapd está habilitado (existe `/run/snapd.socket`). Com o snapd desligado, ele rodava em todo login: 3,3–4,2 s a frio num HD.
