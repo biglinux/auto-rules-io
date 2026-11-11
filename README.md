@@ -4,7 +4,7 @@
 
 Your laptop has one disk, and everybody wants it at the same time: the indexer, the package manager, the backup, the browser you just clicked on. Guess which one you are waiting for. This package makes sure it is the browser that gets through, picks a sane I/O scheduler for each disk, and stops the boot from redoing work pacman already did.
 
-No resident daemon, no GUI, no "AI-powered optimizer". Just udev rules, systemd drop-ins, sysctl files and two short shell scripts, all of them plain text you can read in under a minute.
+No GUI, no "AI-powered optimizer". Udev rules, systemd drop-ins, sysctl files, two short shell scripts and one small user service, `deskbalance`, that sleeps until a program starts or waits on the disk.
 
 ## Contents
 
@@ -12,6 +12,7 @@ No resident daemon, no GUI, no "AI-powered optimizer". Just udev rules, systemd 
 - [Install](#install)
 - [I/O scheduler](#io-scheduler)
 - [Disk latency target for the session](#disk-latency-target-for-the-session)
+- [deskbalance](#deskbalance)
 - [Faster boot and login](#faster-boot-and-login)
 - [Memory and swap](#memory-and-swap)
 - [Btrfs housekeeping](#btrfs-housekeeping)
@@ -26,6 +27,7 @@ No resident daemon, no GUI, no "AI-powered optimizer". Just udev rules, systemd 
 | `usr/lib/systemd/system/user.slice.d/50-io-latency.conf` | 2 ms disk latency target for every login session |
 | `usr/lib/systemd/system/user@.service.d/50-io-latency.conf` | Hands the `io` controller to the user manager |
 | `usr/lib/systemd/user/{app,session}.slice.d/50-io-latency.conf` | The same target inside the session |
+| `usr/bin/deskbalance`, `usr/lib/systemd/user/deskbalance.service`, `usr/lib/systemd/user.conf.d/50-deskbalance.conf` | Moves the job hogging the disk out of the way when a program starts or waits |
 | `usr/lib/systemd/system/ldconfig.service.d/50-pacman.conf` | Rebuilds the linker cache at boot only when it is missing |
 | `usr/lib/systemd/user/app-snap\x2duserd\x2dautostart@autostart.service.d/50-snapd.conf` | Runs snapd's login helper only where snapd is enabled |
 | `etc/sysctl.d/91-memory.conf` | Swap, cache and writeback settings tuned for zram |
@@ -107,6 +109,36 @@ sudo ln -s /dev/null /etc/systemd/user/session.slice.d/50-io-latency.conf
 ```
 
 The reboot is not optional: systemd drops the setting but leaves the kernel's target in place. Clearing it by hand (`target=0` in `io.latency`) while it throttles leaves the throttled groups delayed until reboot anyway, because the kernel only clears the delay on the group that had the target.
+
+## deskbalance
+
+The latency target throttles `background.slice`, but a copy started from your file manager or a terminal lands in `app.slice`, right next to the browser you are waiting for, where the target cannot tell them apart. `deskbalance` is a user service that fixes that:
+
+- **A program starts** (a unit appears in `app.slice`): for the 10 s after the last start (30 s at most, then none for 10 s), `background.slice` and any `app.slice` unit burning more than an eighth of the CPUs (at least one) share a quarter of the CPUs (at least one), so the new program keeps whole cores.
+- **A job hogs the disk** (at a start, or whenever `app.slice` waits on the disk): the busiest job of a program scope that has run for a minute or more (younger ones may still be loading) moves to a scope of its own in `background.slice`, under the latency target, with room for what it allocates plus 256 MB of page cache, so a big copy cannot push your programs out of RAM. "Job" means process group: the `cp` you started from a terminal moves, the terminal stays.
+- **The job goes quiet** for 10 s: it goes back to `app.slice`, in a scope named after the one it left.
+
+It blocks in inotify, a PSI trigger and a signalfd, so it does not wake up while nothing starts and nothing waits on the disk; while a job is moved, it looks at it once a second. On SIGTERM it lifts the CPU caps and puts every moved job back, and an instance that replaces a killed one takes over what it left. On a kernel without unprivileged PSI triggers, jobs move only when a program starts.
+
+Measured on a laptop with an HDD, with a 4 GB copy started as a job from a terminal (cold start, seconds):
+
+| | LibreOffice | Firefox |
+|---|---|---|
+| without deskbalance | 86–95 | 81–89 |
+| with deskbalance | 13–32 | 21–24 |
+
+LibreOffice takes the high end when it is the first program to start after the copy: the copy then moves as LibreOffice starts, not before.
+
+At rest it uses 0.6 MB of memory and no wakeups.
+
+The fine print:
+
+- A program that does the heavy I/O itself (a browser download, a game updater) moves as a whole, and comes back in a scope with `-deskbalance-…` added to its name.
+- Any unit that appears in `app.slice` counts as a program starting, D-Bus-activated and timer-started ones included.
+- It does not know which window has the focus, so the program you are using can be the one capped for 10 s if it burns a lot of CPU while another one starts.
+- On Plasma, `krunner`, the polkit agent and the kscreen OSD run in `background.slice`, so they share that quarter of the CPUs for the 10 s after a program starts.
+- It reads each program's disk bytes from its cgroup, so the package turns on I/O accounting for user units (`DefaultIOAccounting=yes`, from the next login). It caps busy `app.slice` units only where something there already enabled the CPU controller; otherwise only `background.slice` is capped, and its log says so.
+- It is enabled for every user. To turn it off for yourself: `systemctl --user mask --now deskbalance`.
 
 ## Faster boot and login
 
