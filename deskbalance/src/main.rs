@@ -339,7 +339,7 @@ fn start_scope(
 /// the processes are in the new cgroup, and a job forks while it moves: they
 /// are awaited, then the children left behind follow. Zero means none arrived
 /// within 2 s or the job ended first; systemd may still fill the scope, so the
-/// caller keeps it. An error means systemd refused the scope.
+/// caller keeps it. An error means no scope was started.
 fn move_job(
     from: &Path,
     pick: impl Fn(u32) -> bool,
