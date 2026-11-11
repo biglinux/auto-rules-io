@@ -1,25 +1,83 @@
 # auto-rules-io
-I/O, memory and boot tuning for BigLinux
 
-## I/O scheduler / Agendador de E/S
+**I/O, memory and boot tuning for [BigLinux](https://www.biglinux.com.br).**
 
-EN - Automatically chooses the I/O scheduler: BFQ on rotational disks and eMMC, Kyber on SSD and NVMe.
+Your laptop has one disk, and everybody wants it at the same time: the indexer, the package manager, the backup, the browser you just clicked on. Guess which one you are waiting for. This package makes sure it is the browser that gets through, picks a sane I/O scheduler for each disk, and stops the boot from redoing work pacman already did.
 
-PT - Escolhe automaticamente o agendador de E/S: BFQ em discos rotacionais e eMMC, Kyber em SSD e NVMe.
+No resident daemon, no GUI, no "AI-powered optimizer". Just udev rules, systemd drop-ins, sysctl files and two short shell scripts, all of them plain text you can read in under a minute.
 
-## Disk latency target for the session / Meta de latência de disco da sessão
+## Contents
 
-EN - The session keeps a 2 ms disk latency target on the disks of `/` and `/home` (`IODeviceLatencyTargetSec=` on `user.slice`, and on `app.slice` and `session.slice` in the user manager, which `Delegate=io` on `user@.service` allows). While programs miss it, the kernel's io.latency controller throttles everything beside them: `system.slice` and `machine.slice` (system services, containers and virtual machines, including work done for the user such as package updates and Docker builds) and the user's `background.slice` (indexers). While the session does no I/O, they run at full speed. This works under any scheduler: ionice classes act only inside one cgroup under BFQ and not at all under Kyber, and `IOWeight` shares throughput under BFQ but bounds no latency.
+- [What's in the box](#whats-in-the-box)
+- [Install](#install)
+- [I/O scheduler](#io-scheduler)
+- [Disk latency target for the session](#disk-latency-target-for-the-session)
+- [Faster boot and login](#faster-boot-and-login)
+- [Memory and swap](#memory-and-swap)
+- [Btrfs housekeeping](#btrfs-housekeeping)
+- [Odds and ends](#odds-and-ends)
+- [License](#license)
 
-PT - A sessão mantém uma meta de latência de 2 ms nos discos de `/` e `/home` (`IODeviceLatencyTargetSec=` em `user.slice`, e em `app.slice` e `session.slice` no gerenciador do usuário, o que o `Delegate=io` no `user@.service` permite). Enquanto os programas passam dessa meta, o controlador io.latency do kernel freia tudo o que roda ao lado deles: `system.slice` e `machine.slice` (serviços do sistema, contêineres e máquinas virtuais, inclusive trabalho feito para o usuário, como atualizações de pacotes e builds do Docker) e a `background.slice` do usuário (indexadores). Enquanto a sessão não faz E/S, eles rodam na velocidade máxima. Funciona com qualquer agendador: as classes do ionice só valem dentro de um cgroup no BFQ e não valem no Kyber, e o `IOWeight` divide a vazão no BFQ, mas não limita a latência.
+## What's in the box
 
-EN - All I/O from the user's session counts toward the `user.slice` target, `background.slice` included: while the reads of an indexer such as Baloo or localsearch miss the target, system services and VMs are throttled even if no program waits. The kernel adds each request's latency to every ancestor group that has a target, and `background.slice` lives inside `user.slice`.
+| File | What it does |
+|---|---|
+| `etc/udev/rules.d/60-ioschedulers.rules` | Picks the I/O scheduler per disk type; sets APM level 127 on rotational disks |
+| `usr/lib/systemd/system/user.slice.d/50-io-latency.conf` | 2 ms disk latency target for every login session |
+| `usr/lib/systemd/system/user@.service.d/50-io-latency.conf` | Hands the `io` controller to the user manager |
+| `usr/lib/systemd/user/{app,session}.slice.d/50-io-latency.conf` | The same target inside the session |
+| `usr/lib/systemd/system/ldconfig.service.d/50-pacman.conf` | Rebuilds the linker cache at boot only when it is missing |
+| `usr/lib/systemd/user/app-snap\x2duserd\x2dautostart@autostart.service.d/50-snapd.conf` | Runs snapd's login helper only where snapd is enabled |
+| `etc/sysctl.d/91-memory.conf` | Swap, cache and writeback settings tuned for zram |
+| `etc/sysctl.d/10-games-tweaks.conf` | Meant to raise `vm.max_map_count` and turn off core dumps; see [Odds and ends](#odds-and-ends) |
+| `etc/modprobe.d/disable_snd_itco.conf` | Blacklists the Intel chipset watchdog and the PC speaker |
+| `usr/bin/big-btrfs-fix-to-timeshift`, `usr/bin/big-btrfs-balance`, `usr/lib/systemd/system/big-btrfs-balance.service` | Resets the Btrfs default subvolume and runs a light balance after boot |
 
-PT - Toda E/S da sessão do usuário conta para a meta da `user.slice`, inclusive a da `background.slice`: enquanto as leituras de um indexador como o Baloo ou o localsearch passam da meta, serviços do sistema e VMs são freados mesmo sem nenhum programa esperando. O kernel soma a latência de cada requisição em todos os grupos ancestrais que têm meta, e a `background.slice` fica dentro da `user.slice`.
+## Install
 
-EN - Measured with a sequential reader in the background (cold start, seconds). Alone, LibreOffice and Firefox start in 0.8 and 1.4 s on the NVMe, 10.6 and 16.5 s on the HDD.
+It ships in the BigLinux repositories:
 
-PT - Medido com um leitor sequencial em segundo plano (início a frio, segundos). Sozinhos, LibreOffice e Firefox abrem em 0,8 e 1,4 s no NVMe e em 10,6 e 16,5 s no HD.
+```bash
+sudo pacman -S auto-rules-io
+```
+
+pacman reloads systemd on install, so the drop-ins are picked up right away; the ldconfig and snapd ones only matter at the next boot and login anyway. The scheduler rules and sysctl files live in `/etc`, where pacman's hooks do not look, so they apply at the next boot, or now with:
+
+```bash
+sudo udevadm trigger -c change && sudo sysctl --system
+```
+
+The module blacklist waits for the reboot.
+
+The install script enables `big-btrfs-balance.service`, and on every upgrade it rewrites one specific set of old Btrfs mount options in `/etc/fstab` (`,space_cache=v2,autodefrag,compress-force=zstd:2,commit=15`, with or without `,discard=async,ssd`) to `,compress-force=zstd`. Other fstab lines are left alone.
+
+## I/O scheduler
+
+| Disk | Scheduler |
+|---|---|
+| Rotational `sd*` (HDD, USB HDD included) | BFQ |
+| Non-rotational `sd*` (SATA or USB SSD) | Kyber |
+| `mmcblk*` (eMMC, SD card) | BFQ |
+| `nvme*` | Kyber |
+
+Anything else (`vd*`, a 27th `sd` disk) keeps the kernel's default. Rotational disks also get `hdparm -B 127`, the highest APM level that still lets the disk spin down, provided `hdparm` is installed.
+
+## Disk latency target for the session
+
+### What it does
+
+Every login session gets a 2 ms disk latency target on the disks holding `/` and `/home` (`IODeviceLatencyTargetSec=` on `user.slice`, and on `app.slice` and `session.slice` inside the user manager). While your programs miss it, the kernel's io.latency controller throttles everything around them:
+
+- `system.slice` and `machine.slice`: system services, containers and VMs, including work done on your behalf such as package updates and Docker builds;
+- the user's `background.slice`: indexers and other polite-in-theory background jobs.
+
+When the session does no I/O, nothing is throttled and everyone runs at full speed. It works under any scheduler, which is the point: ionice classes only act inside one cgroup under BFQ and not at all under Kyber, and `IOWeight` shares throughput under BFQ but promises nothing about latency.
+
+2 ms is not magic, just measured: 1 ms is slower on HDDs and 3 ms is slower on NVMe.
+
+### Numbers
+
+Cold start in seconds, with a sequential reader hammering the disk in the background:
 
 | Disk | Target | LibreOffice | Firefox |
 |---|---|---|---|
@@ -28,17 +86,18 @@ PT - Medido com um leitor sequencial em segundo plano (início a frio, segundos)
 | HDD | none | 104–111 | 112–132 |
 | HDD | 2 ms | 37–40 | 74–80 |
 
-EN - On the NVMe, a reader that saturates the disk loses about a quarter of its rate while the session does any I/O; buffered writes and random reads lose nothing measurable, and nothing measurable is lost on the HDD. On an HDD the target does not help against buffered writes, whose writeback it does not control.
+For reference, alone they start in 0.8 and 1.4 s on the NVMe, and 10.6 and 16.5 s on the HDD. The HDD is still an HDD; this package has limits. The NVMe is a Ryzen 7 5700U laptop under Kyber, the HDD an i3-2375M under BFQ, with the page cache dropped before every start. One machine each, so your mileage will vary.
 
-PT - No NVMe, um leitor que satura o disco perde cerca de um quarto da vazão enquanto a sessão faz qualquer E/S; escritas em buffer e leituras aleatórias não perdem nada mensurável, e no HD nada mensurável se perde. No HD a meta não ajuda contra escritas em buffer, cujo writeback ela não controla.
+### The fine print
 
-EN - The target was measured on plain partitions. systemd resolves a LUKS volume, or an LVM volume on one disk, to the disk under it. On RAID, LVM over several disks, multi-device Btrfs or a network `/home` the target cannot reach the disks and does not help.
+- **The bill.** On the NVMe, a reader that saturates the disk loses about a quarter of its rate while the session does any I/O. Buffered writes and random reads lose nothing measurable, and nothing measurable is lost on the HDD.
+- **Writeback.** On an HDD the target does not help against buffered writes: their writeback happens outside its control.
+- **Your background counts too.** All I/O from the session counts toward the `user.slice` target, `background.slice` included. While an indexer such as Baloo or localsearch misses the target, system services and VMs are throttled even if no program waits. The kernel adds each request's latency to every ancestor group with a target, and `background.slice` lives inside `user.slice`.
+- **Storage it can reach.** The target was measured on plain partitions. systemd resolves a LUKS volume, or an LVM volume on a single disk, to the disk under it. On RAID, LVM over several disks, multi-device Btrfs or a network `/home`, the target cannot reach the disks and does nothing.
 
-PT - A meta foi medida em partições comuns. O systemd resolve um volume LUKS, ou um volume LVM sobre um disco só, para o disco que está por baixo. Em RAID, LVM sobre vários discos, Btrfs com vários discos ou `/home` em rede, a meta não alcança os discos e não ajuda.
+### Turning it off
 
-EN - `user.slice` holds every login, SSH and root included. On a server, an administrator's shell would throttle databases, containers and VMs. To turn the target off, mask the three drop-ins and reboot:
-
-PT - A `user.slice` reúne todos os logins, inclusive SSH e root. Num servidor, o shell de um administrador frearia bancos de dados, contêineres e VMs. Para desligar a meta, mascare os três drop-ins e reinicie:
+`user.slice` holds every login, SSH and root included. On a server, that means an administrator's `pacman -Syu` would throttle the databases and VMs, which is rarely what anyone wants at 3 AM. Mask the three targets and reboot (the `Delegate=io` drop-in is harmless on its own):
 
 ```bash
 sudo mkdir -p /etc/systemd/system/user.slice.d /etc/systemd/user/app.slice.d /etc/systemd/user/session.slice.d
@@ -47,18 +106,50 @@ sudo ln -s /dev/null /etc/systemd/user/app.slice.d/50-io-latency.conf
 sudo ln -s /dev/null /etc/systemd/user/session.slice.d/50-io-latency.conf
 ```
 
-EN - Removing the target takes effect at the next boot: systemd drops the setting but leaves the kernel's target in place. Clearing it by hand (`target=0` in `io.latency`) while it throttles leaves the throttled groups delayed until reboot, since the kernel clears the delay only on the group that had the target.
+The reboot is not optional: systemd drops the setting but leaves the kernel's target in place. Clearing it by hand (`target=0` in `io.latency`) while it throttles leaves the throttled groups delayed until reboot anyway, because the kernel only clears the delay on the group that had the target.
 
-PT - Remover a meta só vale no próximo boot: o systemd descarta a configuração, mas deixa a meta no kernel. Zerá-la à mão (`target=0` em `io.latency`) enquanto ela freia deixa os grupos freados atrasados até reiniciar, porque o kernel só limpa o atraso do grupo que tinha a meta.
+## Faster boot and login
 
-## Linker cache at boot / Cache do ligador no boot
+### Linker cache
 
-EN - `ldconfig.service` rebuilds `/etc/ld.so.cache` at boot only when it is missing or empty, instead of at the first boot after every update. pacman already runs ldconfig after each transaction, so the boot rebuild repeated it inside `sysinit.target`: 8.8–9.9 s cold on an HDD, 0.5 s on an NVMe. Libraries added without pacman (a `systemd-sysext` image, a transaction killed before its end) need `sudo ldconfig`.
+`ldconfig.service` rebuilds `/etc/ld.so.cache` at boot only when the cache is missing or empty, instead of at the first boot after every update. pacman already runs ldconfig after each transaction, so the boot was redoing it inside `sysinit.target`, where everything else waits: 8.8–9.9 s cold on an HDD, 0.5 s on an NVMe.
 
-PT - O `ldconfig.service` refaz o `/etc/ld.so.cache` no boot só quando ele falta ou está vazio, em vez de no primeiro boot depois de cada atualização. O pacman já roda o ldconfig a cada transação, então o boot repetia o trabalho dentro do `sysinit.target`: 8,8–9,9 s a frio num HD, 0,5 s num NVMe. Bibliotecas adicionadas sem o pacman (uma imagem do `systemd-sysext`, uma transação interrompida antes do fim) precisam de `sudo ldconfig`.
+If you add libraries without pacman (a `systemd-sysext` image, a transaction killed halfway), run `sudo ldconfig` yourself. You were going to anyway, right?
 
-## snap at login / snap no login
+### snapd
 
-EN - snapd's autostart (`snap userd --autostart`) starts only where snapd is enabled (`/run/snapd.socket` exists). With snapd turned off it ran at every login: 3.3–4.2 s cold on an HDD.
+snapd's XDG autostart (`snap userd --autostart`) only starts where snapd is enabled, that is, where `/run/snapd.socket` exists. With snapd turned off it still ran at every login and achieved nothing in 3.3–4.2 s cold on an HDD.
 
-PT - O autostart do snapd (`snap userd --autostart`) só inicia onde o snapd está habilitado (existe `/run/snapd.socket`). Com o snapd desligado, ele rodava em todo login: 3,3–4,2 s a frio num HD.
+## Memory and swap
+
+`91-memory.conf` assumes zram (or zswap) for swap:
+
+| Setting | Value | Effect |
+|---|---|---|
+| `vm.page-cluster` | 0 | Swap in one page at a time; zram compresses pages individually |
+| `vm.swappiness` | 30 | Prefer dropping cache over swapping |
+| `vm.vfs_cache_pressure` | 75 | Keep directory and inode caches a little longer |
+| `vm.watermark_scale_factor` | 150 | Wider gap between watermarks, so kswapd starts earlier |
+| `vm.watermark_boost_factor` | 15000 | Kernel default, written down: boost watermarks after fragmentation events |
+| `vm.dirty_background_ratio` / `vm.dirty_ratio` | 5 / 15 | Start writeback sooner |
+| `vm.compaction_proactiveness` | 20 | Kernel default, written down: background compaction level |
+| `vm.extfrag_threshold` | 300 | Compact rather than reclaim a bit sooner (default 500) |
+| `vm.panic_on_oom` | 0 | Kernel default, written down: let the OOM killer pick a victim instead of panicking |
+
+`vm.min_free_kbytes` is not here: the `pre-systemd-swap` service sets it to 3% of RAM, up to 512 MB.
+
+## Btrfs housekeeping
+
+`big-btrfs-balance.service` runs once per boot, after `multi-user.target`:
+
+1. `big-btrfs-fix-to-timeshift` resets the default subvolume to the top-level one (the parent of `@`), which Timeshift expects.
+2. Five minutes later, `big-btrfs-balance` runs `btrfs balance` with `-dusage=50 -musage=50` on `/`, and on `/home` if it is a different filesystem, under `nice 19` and `ionice -c 3` (the latter only counts on BFQ disks).
+
+## Odds and ends
+
+- `10-games-tweaks.conf` sets `vm.max_map_count` to 2147483642, the value SteamOS uses for games, and `kernel.core_pattern` to `|/bin/false`, which throws core dumps away. Neither wins today: sysctl files apply in name order, and Manjaro's `10-manjaro.conf` (1048576) and systemd's `50-coredump.conf` come later and set both again.
+- `disable_snd_itco.conf` blacklists `iTCO_wdt`, the Intel chipset watchdog, which nothing on the desktop arms, and `pcspkr`, the PC speaker, so nothing beeps at you from the motherboard.
+
+## License
+
+GPL, as declared in [`pkgbuild/PKGBUILD`](pkgbuild/PKGBUILD).
