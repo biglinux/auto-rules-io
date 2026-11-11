@@ -1,0 +1,15 @@
+[package]
+name = "deskbalance"
+version = "0.1.0"
+edition = "2024"
+description = "Keeps programs that start or wait on the disk ahead of long-running work"
+publish = false
+
+[dependencies]
+nix = { version = "0.30", features = ["feature", "inotify", "poll", "signal", "time"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

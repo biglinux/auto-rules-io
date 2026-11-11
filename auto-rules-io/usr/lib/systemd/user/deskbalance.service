@@ -1,0 +1,25 @@
+[Unit]
+Description=Keep starting programs ahead of background disk and CPU work
+Documentation=https://github.com/biglinux/auto-rules-io
+ConditionUser=!@system
+# It watches app.slice, whose cgroup exists once the slice is started.
+Wants=app.slice
+After=app.slice
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/deskbalance
+# Not app.slice: it watches that slice for programs starting.
+Slice=session.slice
+Restart=on-failure
+# Seccomp-only hardening: a user manager applies it without user namespaces.
+NoNewPrivileges=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=default.target
