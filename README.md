@@ -29,7 +29,7 @@ No resident daemon, no GUI, no "AI-powered optimizer". Just udev rules, systemd 
 | `usr/lib/systemd/system/ldconfig.service.d/50-pacman.conf` | Rebuilds the linker cache at boot only when it is missing |
 | `usr/lib/systemd/user/app-snap\x2duserd\x2dautostart@autostart.service.d/50-snapd.conf` | Runs snapd's login helper only where snapd is enabled |
 | `etc/sysctl.d/91-memory.conf` | Swap, cache and writeback settings tuned for zram |
-| `etc/sysctl.d/10-games-tweaks.conf` | Meant to raise `vm.max_map_count` and turn off core dumps; see [Odds and ends](#odds-and-ends) |
+| `etc/sysctl.d/99-games-tweaks.conf` | Raises `vm.max_map_count` for games and turns off core dumps |
 | `etc/modprobe.d/disable_snd_itco.conf` | Blacklists the Intel chipset watchdog and the PC speaker |
 | `usr/bin/big-btrfs-fix-to-timeshift`, `usr/bin/big-btrfs-balance`, `usr/lib/systemd/system/big-btrfs-balance.service` | Resets the Btrfs default subvolume and runs a light balance after boot |
 
@@ -147,7 +147,7 @@ snapd's XDG autostart (`snap userd --autostart`) only starts where snapd is enab
 
 ## Odds and ends
 
-- `10-games-tweaks.conf` sets `vm.max_map_count` to 2147483642, the value SteamOS uses for games, and `kernel.core_pattern` to `|/bin/false`, which throws core dumps away. Neither wins today: sysctl files apply in name order, and Manjaro's `10-manjaro.conf` (1048576) and systemd's `50-coredump.conf` come later and set both again.
+- `99-games-tweaks.conf` sets `vm.max_map_count` to 2147483642, the value SteamOS uses for games, and `kernel.core_pattern` to `|/bin/false`, which throws core dumps away, so `coredumpctl` (and any crash reporter built on it) has nothing to show. The `99-` prefix puts it last: sysctl files apply in name order, Manjaro's `10-manjaro.conf` sets `vm.max_map_count`, systemd's `50-coredump.conf` sets `kernel.core_pattern`, and the later name wins. If `systemd-coredumpd.service` is enabled, its `systemd-coredump-register.service` sets `kernel.core_pattern` again after sysctl runs, and core dumps come back.
 - `disable_snd_itco.conf` blacklists `iTCO_wdt`, the Intel chipset watchdog, which nothing on the desktop arms, and `pcspkr`, the PC speaker, so nothing beeps at you from the motherboard.
 
 ## License
