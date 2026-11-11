@@ -1,5 +1,5 @@
 # auto-rules-io
-automatic udev rules to io
+I/O, memory and boot tuning for BigLinux
 
 ## I/O scheduler / Agendador de E/S
 
