@@ -1,6 +1,8 @@
 # auto-rules-io
 automatic udev rules to io
 
-EN - Automatically choose input and output scheduler for BFQ on rotational disks, SSD and none for NVME.
+## I/O scheduler / Agendador de E/S
 
-PT - Escolher automaticamente o agendador de entrada e saída para BFQ em discos rotacionais, SSD e nenhum para NVME.
+EN - Automatically chooses the I/O scheduler: BFQ on rotational disks and eMMC, Kyber on SSD and NVMe.
+
+PT - Escolhe automaticamente o agendador de E/S: BFQ em discos rotacionais e eMMC, Kyber em SSD e NVMe.
