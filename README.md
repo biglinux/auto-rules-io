@@ -138,7 +138,7 @@ The fine print:
 - It does not know which window has the focus, so the program you are using can be the one capped for 10 s if it burns a lot of CPU while another one starts.
 - On Plasma, `krunner`, the polkit agent and the kscreen OSD run in `background.slice`, so they share that quarter of the CPUs for the 10 s after a program starts.
 - It reads each program's disk bytes from its cgroup, so the package turns on I/O accounting for user units (`DefaultIOAccounting=yes`), which applies as soon as the install reloads each user's systemd instance. deskbalance itself starts when that instance starts again: at the next login with no other session of that user open and lingering off, or after a reboot. It caps busy `app.slice` units only where something there already enabled the CPU controller; otherwise only `background.slice` is capped, and its log says so.
-- The package enables it for every user when it first installs it. To turn it off for everyone, on the same terms: `sudo systemctl --global disable deskbalance` (upgrades leave that alone). For yourself only: `systemctl --user mask --now deskbalance`, since a user cannot disable what is enabled globally.
+- The package enables it for every user when it first installs it. To turn it off for everyone: `sudo systemctl --global disable deskbalance` (upgrades leave that alone). Like enabling, that applies when each user's instance starts again; a deskbalance already running keeps going until then, or stops at once with `systemctl --user stop deskbalance` in that user's session. For yourself only: `systemctl --user mask --now deskbalance`, since a user cannot disable what is enabled globally.
 
 ## Faster boot and login
 
