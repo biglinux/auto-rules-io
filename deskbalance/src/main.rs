@@ -335,9 +335,11 @@ fn start_scope(
 }
 
 /// Moves the processes of cgroup `from` that `pick` selects into a new scope
-/// in the slice at `to`, and returns how many moved. systemd answers before
+/// in the slice at `to`, and returns how many are in it. systemd answers before
 /// the processes are in the new cgroup, and a job forks while it moves: they
-/// are awaited, then the children left behind follow.
+/// are awaited, then the children left behind follow. Zero means none arrived
+/// within 2 s or the job ended first; systemd may still fill the scope, so the
+/// caller keeps it. An error means systemd refused the scope.
 fn move_job(
     from: &Path,
     pick: impl Fn(u32) -> bool,
@@ -372,12 +374,8 @@ fn move_job(
         if !ids(&cgroup, "procs").is_empty() {
             break;
         }
-        if left.is_empty() {
-            return Err("its processes are gone".into());
-        }
-        if Instant::now() >= deadline {
-            println!("{scope}: still empty after 2 s, late children stay behind");
-            return Ok(procs.len());
+        if left.is_empty() || Instant::now() >= deadline {
+            return Ok(0);
         }
         sleep(Duration::from_millis(10));
     }
@@ -519,11 +517,18 @@ impl Balancer {
             Some(CACHE_ROOM),
         ) {
             Ok(count) => {
-                let left = ids(&path, "procs").len();
-                println!(
-                    "{why}: {count} of {} processes of {unit} -> background.slice/{scope}",
-                    count + left
-                );
+                if count > 0 {
+                    let left = ids(&path, "procs").len();
+                    println!(
+                        "{why}: {count} of {} processes of {unit} -> background.slice/{scope}",
+                        count + left
+                    );
+                } else if ids(&path, "procs").into_iter().any(pick) {
+                    println!("{why}: {unit} not moved yet: none of its processes reached {scope}");
+                } else {
+                    println!("{why}: {unit} not moved: its processes are gone");
+                }
+                // check_moved drops it if it stays empty or never appears.
                 let moved = Moved::new(unit, &self.background.join(&scope));
                 self.moved.insert(scope, moved);
             }
@@ -546,23 +551,30 @@ impl Balancer {
         // which an earlier, partial return may have started already.
         let back = return_scope(&unit, scope);
         let result = if self.app.join(&back).is_dir() {
-            attach(&back, &ids(&cgroup, "procs"))
+            let procs = ids(&cgroup, "procs");
+            attach(&back, &procs).map(|()| procs.len())
         } else {
             self.own.insert(back.clone());
-            move_job(&cgroup, |_| true, &self.app, &back, &unit, None).map(|_| ())
+            move_job(&cgroup, |_| true, &self.app, &back, &unit, None)
         };
         // An empty source is a job that went back or exited meanwhile; the
         // scope systemd may still create for it stays known as this daemon's.
         if ids(&cgroup, "procs").is_empty() {
-            if result.is_ok() {
+            if result.is_ok_and(|count| count > 0) {
                 println!("quiet: {scope} -> app.slice/{back}");
             }
             self.moved.remove(scope);
             return;
         }
-        if let Err(e) = &result {
-            println!("quiet: {scope} not returned: {e}");
-            self.own.remove(&back);
+        match &result {
+            Ok(0) => {
+                println!("quiet: {scope} not returned yet: none of its processes reached {back}")
+            }
+            Ok(_) => {}
+            Err(e) => {
+                println!("quiet: {scope} not returned: {e}");
+                self.own.remove(&back);
+            }
         }
         if let Some(moved) = self.moved.get_mut(scope) {
             moved.quiet_since = None;
