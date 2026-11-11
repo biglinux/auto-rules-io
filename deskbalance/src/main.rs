@@ -336,8 +336,8 @@ fn start_scope(
 
 /// Moves the processes of cgroup `from` that `pick` selects into a new scope
 /// in the slice at `to`, and returns how many moved. systemd answers before
-/// the scope's cgroup exists, and a job forks while it moves: the cgroup is
-/// awaited, then the children left behind follow.
+/// the processes are in the new cgroup, and a job forks while it moves: they
+/// are awaited, then the children left behind follow.
 fn move_job(
     from: &Path,
     pick: impl Fn(u32) -> bool,
@@ -365,9 +365,18 @@ fn move_job(
     }
     let cgroup = to.join(scope);
     let deadline = Instant::now() + Duration::from_secs(2);
-    while !cgroup.is_dir() {
+    loop {
+        // The source first: a process systemd moves in between is then seen
+        // in the scope, and both empty means the job exited.
+        let left = picked();
+        if !ids(&cgroup, "procs").is_empty() {
+            break;
+        }
+        if left.is_empty() {
+            return Err("its processes are gone".into());
+        }
         if Instant::now() >= deadline {
-            println!("{scope}: not there after 2 s, late children stay behind");
+            println!("{scope}: still empty after 2 s, late children stay behind");
             return Ok(procs.len());
         }
         sleep(Duration::from_millis(10));
@@ -542,14 +551,20 @@ impl Balancer {
             self.own.insert(back.clone());
             move_job(&cgroup, |_| true, &self.app, &back, &unit, None).map(|_| ())
         };
+        // An empty source is a job that went back or exited meanwhile; the
+        // scope systemd may still create for it stays known as this daemon's.
+        if ids(&cgroup, "procs").is_empty() {
+            if result.is_ok() {
+                println!("quiet: {scope} -> app.slice/{back}");
+            }
+            self.moved.remove(scope);
+            return;
+        }
         if let Err(e) = &result {
             println!("quiet: {scope} not returned: {e}");
             self.own.remove(&back);
         }
-        if result.is_ok() && ids(&cgroup, "procs").is_empty() {
-            println!("quiet: {scope} -> app.slice/{back}");
-            self.moved.remove(scope);
-        } else if let Some(moved) = self.moved.get_mut(scope) {
+        if let Some(moved) = self.moved.get_mut(scope) {
             moved.quiet_since = None;
         }
     }
@@ -618,13 +633,10 @@ impl Balancer {
                 return !moved.seen && moved.sampled.elapsed() < Duration::from_secs(60);
             }
             moved.seen = true;
-            // Wakeups for starts or pressure come closer: a rate over a few
-            // milliseconds of terminal output would read as busy.
-            if moved.sampled.elapsed() < Duration::from_secs(1) {
-                return true;
-            }
             // What the job allocated: anonymous memory, and shmem, which holds
-            // its tmpfs files and shared mappings.
+            // its tmpfs files and shared mappings. Followed on every wakeup,
+            // about once a second: only memory that grows by more than
+            // CACHE_ROOM in that time meets the limit.
             let allocated: Option<u64> = read(&cgroup.join("memory.stat"))
                 .lines()
                 .filter_map(|line| {
@@ -638,6 +650,11 @@ impl Balancer {
                 if read(&cgroup.join("memory.high")).trim() != high {
                     let _ = fs::write(cgroup.join("memory.high"), high);
                 }
+            }
+            // Wakeups for starts or pressure come closer: a rate over a few
+            // milliseconds of terminal output would read as busy.
+            if moved.sampled.elapsed() < Duration::from_secs(1) {
+                return true;
             }
             let (chars, blocked) = activity(&cgroup);
             let now = Instant::now();
