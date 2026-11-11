@@ -13,6 +13,10 @@ EN - The session keeps a 2 ms disk latency target on the disks of `/` and `/home
 
 PT - A sessão mantém uma meta de latência de 2 ms nos discos de `/` e `/home` (`IODeviceLatencyTargetSec=` em `user.slice`, e em `app.slice` e `session.slice` no gerenciador do usuário, o que o `Delegate=io` no `user@.service` permite). Enquanto os programas passam dessa meta, o controlador io.latency do kernel freia tudo o que roda ao lado deles: `system.slice` e `machine.slice` (serviços do sistema, contêineres e máquinas virtuais, inclusive trabalho feito para o usuário, como atualizações de pacotes e builds do Docker) e a `background.slice` do usuário (indexadores). Enquanto a sessão não faz E/S, eles rodam na velocidade máxima. Funciona com qualquer agendador: as classes do ionice só valem dentro de um cgroup no BFQ e não valem no Kyber, e o `IOWeight` divide a vazão no BFQ, mas não limita a latência.
 
+EN - All I/O from the user's session counts toward the `user.slice` target, `background.slice` included: while the reads of an indexer such as Baloo or localsearch miss the target, system services and VMs are throttled even if no program waits. The kernel adds each request's latency to every ancestor group that has a target, and `background.slice` lives inside `user.slice`.
+
+PT - Toda E/S da sessão do usuário conta para a meta da `user.slice`, inclusive a da `background.slice`: enquanto as leituras de um indexador como o Baloo ou o localsearch passam da meta, serviços do sistema e VMs são freados mesmo sem nenhum programa esperando. O kernel soma a latência de cada requisição em todos os grupos ancestrais que têm meta, e a `background.slice` fica dentro da `user.slice`.
+
 EN - Measured with a sequential reader in the background (cold start, seconds). Alone, LibreOffice and Firefox start in 0.8 and 1.4 s on the NVMe, 10.6 and 16.5 s on the HDD.
 
 PT - Medido com um leitor sequencial em segundo plano (início a frio, segundos). Sozinhos, LibreOffice e Firefox abrem em 0,8 e 1,4 s no NVMe e em 10,6 e 16,5 s no HD.
