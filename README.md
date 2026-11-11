@@ -46,3 +46,9 @@ sudo ln -s /dev/null /etc/systemd/user/session.slice.d/50-io-latency.conf
 EN - Removing the target takes effect at the next boot: systemd drops the setting but leaves the kernel's target in place. Clearing it by hand (`target=0` in `io.latency`) while it throttles leaves the throttled groups delayed until reboot, since the kernel clears the delay only on the group that had the target.
 
 PT - Remover a meta só vale no próximo boot: o systemd descarta a configuração, mas deixa a meta no kernel. Zerá-la à mão (`target=0` em `io.latency`) enquanto ela freia deixa os grupos freados atrasados até reiniciar, porque o kernel só limpa o atraso do grupo que tinha a meta.
+
+## Background CPU / CPU em segundo plano
+
+EN - The user's `background.slice` runs with `CPUWeight=idle`: its tasks get the CPU only when the session's programs leave it free. With 16 busy loops there, LibreOffice starts in 1.7–1.8 s instead of 1.9–2.1 s and Firefox in 3.3–3.5 s instead of 3.8–4.0 s, while the loops keep 13.7–14.3 of their 14.1–14.6 CPUs. While the user keeps every CPU busy, background work waits.
+
+PT - A `background.slice` do usuário roda com `CPUWeight=idle`: suas tarefas só recebem CPU quando os programas da sessão a deixam livre. Com 16 laços ocupados ali, o LibreOffice abre em 1,7–1,8 s em vez de 1,9–2,1 s e o Firefox em 3,3–3,5 s em vez de 3,8–4,0 s, e os laços mantêm 13,7–14,3 das suas 14,1–14,6 CPUs. Enquanto o usuário ocupa todas as CPUs, o trabalho em segundo plano espera.
