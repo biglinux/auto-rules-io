@@ -10,11 +10,12 @@
 //!   a program scope that has run for [`MIN_AGE`] and moves the most bytes is
 //!   moved into a scope of its own in `background.slice`, which the session's
 //!   io.latency target throttles. That scope may hold what the job allocates
-//!   plus [`CACHE_ROOM`], so the page cache of a copy stays there instead of
-//!   pushing programs out of RAM. Only the busiest job moves: the processes
-//!   sharing the process group of the one with the most disk bytes. A copy or
-//!   build started from a terminal is a job of its own, so the terminal stays;
-//!   a program's own I/O shares its group, and the whole program moves.
+//!   plus [`CACHE_ROOM`] and no swap, so the page cache of a copy stays there
+//!   instead of pushing programs out of RAM. Only the busiest job moves: the
+//!   processes sharing the process group of the one with the most disk bytes.
+//!   A copy or build started from a terminal is a job of its own, so the
+//!   terminal stays; a program's own I/O shares its group, and the whole
+//!   program moves.
 //! - A moved job goes back to `app.slice`, in a scope named after its unit,
 //!   after [`QUIET_TIME`] without I/O.
 //!
@@ -325,8 +326,12 @@ fn start_scope(
     props.extend(["Delegate".into(), "b".into(), "true".into()]);
     let mut count = 4;
     if let Some(high) = memory_high {
+        // The limit is for the job's page cache. Without swap, reclaim under
+        // it drops cache only; with swap, it also cycles the job's few
+        // anonymous pages out and back in.
         props.extend(["MemoryHigh".into(), "t".into(), high.to_string()]);
-        count += 1;
+        props.extend(["MemorySwapMax".into(), "t".into(), "0".into()]);
+        count += 2;
     }
     let mut args = vec![scope.to_owned(), "fail".to_owned(), count.to_string()];
     args.extend(props);
