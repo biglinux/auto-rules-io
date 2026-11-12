@@ -1,12 +1,26 @@
 post_install() {
     systemctl enable big-btrfs-balance.service
+    systemctl --global enable deskbalance.service
+}
+
+# deskbalance is enabled on the upgrade that brings it, and only then, so an
+# administrator's disable survives later ones.
+pre_upgrade() {
+    if [ ! -e /usr/lib/systemd/user/deskbalance.service ]; then
+        touch /run/auto-rules-io-new-deskbalance
+    fi
 }
 
 post_upgrade() {
     systemctl enable big-btrfs-balance.service
+    if [ -e /run/auto-rules-io-new-deskbalance ]; then
+        rm -f /run/auto-rules-io-new-deskbalance
+        systemctl --global enable deskbalance.service
+    fi
     sed -Ei 's|,space_cache=v2,autodefrag,compress-force=zstd:2,commit=15(\|,discard=async,ssd)|,compress-force=zstd|g' /etc/fstab 
 }
 
 pre_remove() {
     systemctl disable big-btrfs-balance.service
+    systemctl --global disable deskbalance.service
 } 
