@@ -120,14 +120,28 @@ The latency target throttles `background.slice`, but a copy started from your fi
 
 It blocks in inotify, a PSI trigger and a signalfd, so it does not wake up while nothing starts and nothing waits on the disk; while a job is moved, it looks at it once a second. On SIGTERM it lifts the CPU caps and puts every moved job back, and an instance that replaces a killed one takes over what it left. On a kernel without unprivileged PSI triggers, jobs move only when a program starts.
 
-Measured on a laptop with an HDD, with a 4 GB copy started as a job from a terminal (cold start, seconds):
+Measured on three laptops while a job in a program scope, started a minute earlier, copies a 3 GB file in a loop. The page cache is dropped before each start, and each program runs without a window and quits once ready; each laptop ran the programs it has installed. Times in seconds, lowest–highest of 3 starts on the NVMe laptops and 2 on the HDD one (with no load, one start where a single value is shown):
 
-| | LibreOffice | Firefox |
-|---|---|---|
-| without deskbalance | 86–95 | 81–89 |
-| with deskbalance | 13–32 | 21–24 |
+| | No load | Copy, deskbalance off | Copy, deskbalance on |
+|---|---|---|---|
+| **Asus Vivobook M1503QA** (Ryzen 5 5600H, 40 GB, NVMe) | | | |
+| LibreOffice | 0.6 | 2.1–4.3 | 0.9–4.2 |
+| Firefox | 1.0 | 5.8–7.1 | 1.5–2.4 |
+| GIMP | 2.6–2.7 | 15.3–17.1 | 3.7–4.3 |
+| Blender | 1.7 | 11.2–17.0 | 2.4–3.7 |
+| **Acer Aspire A515-45** (Ryzen 7 5700U, 36 GB, NVMe) | | | |
+| LibreOffice | 0.6 | 4.2–5.3 | 0.7–4.0 |
+| Firefox | 1.3 | 6.6–10.3 | 1.4–1.6 |
+| GIMP | 2.9 | 10.1–12.7 | 3.1–4.8 |
+| Blender | 2.0 | 8.3–8.9 | 3.3–3.9 |
+| Xonotic server | 7.2 | 8.9–11.7 | 7.5–7.6 |
+| **Lenovo IdeaPad S400** (Core i3-2375M, 4 GB, HDD) | | | |
+| LibreOffice | 7.1–7.8 | 50.3–54.2 | 8.4–9.4 |
+| Firefox | 19.3 | 77.5–87.9 | 21.5–25.2 |
+| GIMP | 22.3–22.9 | 114.8–138.7 | 27.2–29.6 |
+| Xonotic server | 15.7 | 57.7–64.2 | 19.7–20.4 |
 
-LibreOffice takes the high end when it is the first program to start after the copy: the copy then moves as LibreOffice starts, not before.
+On the NVMe laptops LibreOffice takes the high end when it is the first program to start once the copy is running: the copy then moves as LibreOffice starts, not before.
 
 At rest it uses 0.6 MB of memory and no wakeups.
 
